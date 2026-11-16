@@ -1,4 +1,4 @@
-# Meets_Your_Beagle
+# Meet_Your_Beagle
 
           .---._____.---.
          /   /       \   \
