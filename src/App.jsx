@@ -42,6 +42,11 @@ function App() {
     }),
     createRoute({
       getParentRoute: () => rootRoute,
+      path: "/foster-dashboard",
+      component: lazyRouteComponent(() => import("./pages/FosterDashBoard")),
+    }),
+    createRoute({
+      getParentRoute: () => rootRoute,
       path: "*",
       component: lazyRouteComponent(() => import("./pages/Error404")),
     }),

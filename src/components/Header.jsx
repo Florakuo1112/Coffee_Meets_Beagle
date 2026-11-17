@@ -7,9 +7,16 @@ export default function Header({ user, onSignOut }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
-    { name: "AI 探索毛孩", href: "#explore", isHot: true },
-    { name: "契合度分析表", href: "#ai-match" },
-    { name: "送養專區(愛爸愛媽請進)", href: "#foster" },
+    {
+      name: "AI 探索毛孩",
+      onClick: () => navigate({ to: "/explore" }),
+      isHot: true,
+    },
+    { name: "契合度分析表", onClick: () => navigate({ to: "/ai-match" }) },
+    {
+      name: "送養專區(愛爸愛媽請進)",
+      onClick: () => navigate({ to: "/foster-dashboard" }),
+    },
   ];
 
   return (
@@ -39,7 +46,7 @@ export default function Header({ user, onSignOut }) {
             {navLinks.map((link) => (
               <a
                 key={link.name}
-                href={link.href}
+                onClick={link.onClick}
                 className="relative text-sm font-semibold text-slate-600 hover:text-pink-500 transition-colors flex items-center gap-1.5 py-2"
               >
                 {link.name}
@@ -125,8 +132,7 @@ export default function Header({ user, onSignOut }) {
           {navLinks.map((link) => (
             <a
               key={link.name}
-              href={link.href}
-              onClick={() => setMobileMenuOpen(false)}
+              onClick={link.onClick}
               className="flex items-center justify-between px-3 py-2.5 rounded-xl text-base font-semibold text-slate-700 hover:text-pink-500 hover:bg-pink-50 transition-colors"
             >
               <span>{link.name}</span>
