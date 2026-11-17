@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { supabase } from "utils/supabaseClient";
 import { useNavigate } from "@tanstack/react-router";
 import useAuthQuery from "modules/authModules/hook";
+import profileModulesQuery from "modules/profileModules/hook";
 
 function Register() {
   const navigate = useNavigate();
@@ -10,6 +10,7 @@ function Register() {
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("adopter"); // 預設為領養人
   const { mutateAsync: signUp, isPending } = useAuthQuery.signUp();
+  const { mutateAsync: insertProfile } = profileModulesQuery.insertProfile();
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -18,18 +19,12 @@ function Register() {
       const data = await signUp({ email, password });
       if (!data.user?.id) throw new Error("註冊失敗，未取得使用者 ID");
 
-      const { error: profileError } = await supabase.from("profiles").insert([
-        {
-          id: data.user.id, // 必須對應 auth.users 的 uuid
-          display_name: displayName,
-          role: role, // 'adopter' 或 'foster'
-          profile_data: role === "adopter" && {
-            hasBalconyProtection: false,
-          },
-        },
-      ]);
-
-      if (profileError) throw profileError;
+      await insertProfile({
+        id: data.user.id,
+        display_name: displayName,
+        role: role,
+        profile_data: role === "adopter" ? { hasBalconyProtection: false } : {},
+      });
 
       alert("註冊成功！請登入或開始使用。");
       // 導向到首頁或登入頁

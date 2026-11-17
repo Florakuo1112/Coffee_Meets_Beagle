@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { supabase } from "utils/supabaseClient";
 import { useQueryClient } from "@tanstack/react-query";
-
-import { uploadImage } from "utils/uploadImage";
-
-import useAuthQuery from "modules/authModules/hook";
 import { useNavigate } from "@tanstack/react-router";
 
+import useAuthQuery from "modules/authModules/hook";
+import profileModulesQuery from "modules/profileModules/hook";
+
+import { uploadImage } from "utils/uploadImage";
 import LoadingFallback from "components/Loading";
 import Popup from "components/Popup";
 
@@ -49,6 +48,7 @@ function EditProfile({ setIsEditing }) {
   const [avatarUrl, setAvatarUrl] = useState("");
   // 存在 profile_data 裡的表單欄位
   const [formData, setFormData] = useState(defaultFormData);
+  const { mutateAsync: updateProfile } = profileModulesQuery.updateProfile();
 
   const {
     data: userProfile,
@@ -103,17 +103,7 @@ function EditProfile({ setIsEditing }) {
 
       if (!url) return;
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .update({ avatar_url: url })
-        .eq("id", userProfile.id)
-        .select("avatar_url");
-
-      if (error) {
-        console.error("profiles 更新失敗:", error);
-        throw new Error(`資料庫寫入失敗：${error.message}`);
-      }
-      if (!data?.length) throw new Error("找不到個人資料，照片網址沒有寫入");
+      await updateProfile({ id: userProfile.id, avatar_url: url });
       setAvatarUrl(url);
     } catch (error) {
       console.error("照片流程失敗:", error);
@@ -129,16 +119,12 @@ function EditProfile({ setIsEditing }) {
     try {
       if (!userProfile?.id) throw new Error("找不到個人資料，請重新登入");
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          profile_data: formData,
-          avatar_url: avatarUrl,
-        })
-        .eq("id", userProfile.id)
-        .select();
+      await updateProfile({
+        id: userProfile.id,
+        profile_data: formData,
+        avatar_url: avatarUrl,
+      });
 
-      if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ["get", "userProfile"] });
       alert("個人與理想寵物資料儲存成功！");
       setIsEditing(false);
