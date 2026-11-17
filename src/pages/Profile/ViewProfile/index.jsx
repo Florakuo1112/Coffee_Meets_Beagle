@@ -1,5 +1,5 @@
 import LoadingFallback from "components/Loading";
-import useUserProfileQuery from "modules/hook";
+import useAuthQuery from "modules/authModules/hook";
 import { useNavigate } from "@tanstack/react-router";
 
 import {
@@ -9,7 +9,8 @@ import {
   housingLabel,
   sizeLabel,
   speciesLabel,
-} from "types/animalTypes";
+  regionLabel,
+} from "types/labelTypes";
 
 import Popup from "components/Popup";
 
@@ -34,7 +35,7 @@ export default function ViewProfile({ setIsEditing }) {
     isPending,
     isError,
     error,
-  } = useUserProfileQuery.getUserProfile();
+  } = useAuthQuery.getUserProfile();
 
   if (isPending) return <LoadingFallback />;
 
@@ -93,22 +94,28 @@ export default function ViewProfile({ setIsEditing }) {
         <h3 className="text-lg font-bold text-pink-600">🏠 居住與環境狀況</h3>
         <div className="grid grid-cols-2 gap-4">
           <Field
+            label="居住地區"
+            value={labelOf(regionLabel, profile.region)}
+          />
+          <Field
             label="居住類型"
             value={labelOf(housingLabel, profile.housingType)}
           />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
           <Field
             label="養寵物經驗"
             value={`${profile.experienceYears || 0} 年`}
           />
+          <Field
+            label="防墜安全"
+            value={
+              profile.hasBalconyProtection
+                ? "陽台與窗戶已做好防護網"
+                : "尚未設定防護網"
+            }
+          />
         </div>
-        <Field
-          label="防墜安全"
-          value={
-            profile.hasBalconyProtection
-              ? "陽台與窗戶已做好防護網"
-              : "尚未設定防護網"
-          }
-        />
       </div>
 
       <hr className="my-4" />

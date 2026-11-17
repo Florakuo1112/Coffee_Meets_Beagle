@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { uploadImage } from "utils/uploadImage";
 
-import useUserProfileQuery from "modules/hook";
+import useAuthQuery from "modules/authModules/hook";
 import { useNavigate } from "@tanstack/react-router";
 
 import LoadingFallback from "components/Loading";
@@ -17,7 +17,8 @@ import {
   housingLabel,
   sizeLabel,
   speciesLabel,
-} from "types/animalTypes";
+  regionLabel,
+} from "types/labelTypes";
 
 const defaultFormData = {
   housingType: "",
@@ -54,7 +55,7 @@ function EditProfile({ setIsEditing }) {
     isPending,
     isError,
     error,
-  } = useUserProfileQuery.getUserProfile();
+  } = useAuthQuery.getUserProfile();
 
   // useEffect 只負責把資料寫進表單 state，不要在這裡 return JSX
   useEffect(() => {
@@ -211,6 +212,26 @@ function EditProfile({ setIsEditing }) {
       {/* 居住與環境狀況 */}
       <div className="space-y-4">
         <h3 className="text-lg font-bold text-pink-600">🏠 居住與環境狀況</h3>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-600">
+            居住地區
+          </label>
+          <select
+            value={formData.region}
+            onChange={(e) =>
+              setFormData({ ...formData, region: e.target.value })
+            }
+            className="w-full border p-2 rounded-lg"
+          >
+            <option value="">請選擇</option>
+            {Object.entries(regionLabel).map(([key, value]) => (
+              <option key={key} value={key}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-600">
