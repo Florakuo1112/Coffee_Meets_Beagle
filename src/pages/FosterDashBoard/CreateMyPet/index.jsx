@@ -4,17 +4,15 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import petsModulesQuery from "modules/petsModules/hook";
+import petAPIModulesQuery from "modules/petAPIModules/hook";
 import useAuthQuery from "modules/authModules/hook";
 
 import { uploadImage } from "utils/uploadImage";
 import LoadingFallback from "components/Loading";
 import Popup from "components/Popup";
+import NoPhoto from "components/NoPhoto";
 
 import { catColorLabel, dogColorLabel, speciesLabel } from "types/labelTypes";
-import { translateCatBreed, translateDogBreed } from "types/breedLabels";
-
-const THE_DOG_API_KEY = import.meta.env.VITE_THE_DOG_API_KEY;
-const THE_CAT_API_KEY = import.meta.env.VITE_THE_CAT_API_KEY;
 
 const defaultFormData = {
   name: "",
@@ -26,7 +24,7 @@ const defaultFormData = {
   neutered: false,
   personality: "",
   other: "",
-  image_url: "",
+  image_url: [],
 };
 
 function colorsForSpecies(species) {
@@ -48,7 +46,10 @@ function CreateMyPet({ setIsCreatePet }) {
   const [isSaving, setIsSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [imageFile, setImageFile] = useState(null);
+  const [frontBodyImageFile, setFrontBodyImageFile] = useState(null);
+  const [sideBodyImageFile, setSideBodyImageFile] = useState(null);
   const [formData, setFormData] = useState(defaultFormData);
+  const [petId, setPetId] = useState(null);
 
   const {
     data: userProfile,
@@ -57,6 +58,10 @@ function CreateMyPet({ setIsCreatePet }) {
     error,
   } = useAuthQuery.getUserProfile();
   const { mutateAsync: insertPet } = petsModulesQuery.insertPet();
+  const { mutateAsync: createAnimalApiPet, isPending: isCreatingApiPet } =
+    petAPIModulesQuery.createAnimalApiPet();
+  const { mutateAsync: identifyBreed, isPending: isIdentifying } =
+    petAPIModulesQuery.identifyBreed();
 
   if (isPending) return <LoadingFallback />;
   if (isError) {
@@ -81,13 +86,22 @@ function CreateMyPet({ setIsCreatePet }) {
     );
   }
 
-  const handlePhotoChange = async (event) => {
+  const photoIndexByType = {
+    profile: 0,
+    front_body_photo: 1,
+    side_body_photo: 2,
+  };
+
+  const handlePhotoChange = async (event, type = "profile") => {
     try {
       if (!userProfile?.id) throw new Error("找不到個人資料，請重新登入");
 
       const file = event.target.files?.[0];
       if (!file) return;
-      setImageFile(file); // 先留下，給之後辨識用
+
+      if (type === "profile") setImageFile(file);
+      else if (type === "front_body_photo") setFrontBodyImageFile(file);
+      else if (type === "side_body_photo") setSideBodyImageFile(file);
 
       const url = await uploadImage(event, {
         bucket: "coffee_meets_beagle_pets",
@@ -98,7 +112,15 @@ function CreateMyPet({ setIsCreatePet }) {
       });
 
       if (!url) return;
-      setFormData((prev) => ({ ...prev, image_url: url }));
+
+      const index = photoIndexByType[type];
+      if (index == null) return;
+
+      setFormData((prev) => {
+        const next = [...prev.image_url];
+        next[index] = url;
+        return { ...prev, image_url: next };
+      });
     } catch (uploadError) {
       console.error("浪浪照片上傳失敗:", uploadError);
       alert(uploadError.message);
@@ -130,6 +152,7 @@ function CreateMyPet({ setIsCreatePet }) {
         age: formData.age === "" ? null : Number(formData.age),
         neutered: Boolean(formData.neutered),
         other: formData.other.trim() || null,
+        pet_API_id: petId,
       };
 
       await insertPet(payload);
@@ -146,143 +169,43 @@ function CreateMyPet({ setIsCreatePet }) {
     }
   };
 
-  if (isSaving) return <LoadingFallback />;
+  if (isSaving || isCreatingApiPet || isIdentifying) return <LoadingFallback />;
 
-  const identifyDogBreed = async (imageFile, apiKey = THE_DOG_API_KEY) => {
-    if (!imageFile) {
-      alert("請先上傳照片");
+  const handleIdentifyBreed = async () => {
+    const imageFiles = [
+      imageFile,
+      frontBodyImageFile,
+      sideBodyImageFile,
+    ].filter(Boolean);
+
+    if (!imageFiles.length) {
+      alert("請先上傳至少一張照片");
       return;
     }
     try {
-      setIsSaving(true);
-      // ----------------------------------------------------
-      // 步驟一：建立 Pet 並上傳照片 (POST /v1/pets)
-      // ----------------------------------------------------
-      const formData = new FormData();
-      formData.append("name", "My Pet");
-      formData.append("images", imageFile); // 直接傳入 File 物件！
+      const hadPetId = Boolean(petId);
+      let resolvedPetId = petId;
 
-      const createPetResponse = await fetch(
-        "https://api.thedogapi.com/v1/pets",
-        {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            // 注意：使用 FormData 時，fetch 會自動帶入正確的 multipart/form-data 與 boundary，不需要手動設定 Content-Type！
-          },
-          body: formData,
-        },
-      );
-
-      if (!createPetResponse.ok) {
-        throw new Error(`上傳失敗: ${createPetResponse.statusText}`);
+      // 先建立 pet，一有 id 立刻寫進 state（後續加圖失敗也不會丟）
+      if (!resolvedPetId) {
+        const petData = await createAnimalApiPet({
+          species: formData.species,
+        });
+        resolvedPetId = petData.id;
+        setPetId(resolvedPetId);
+        console.log("🐾 The Dog/Cat API petId:", resolvedPetId);
       }
 
-      const petData = await createPetResponse.json();
-      const petId = petData.id; // 取得剛剛建立的 pet_id
-      console.log("🐾 寵物建立成功，ID:", petId);
-
-      // ----------------------------------------------------
-      // 步驟二：呼叫基因與品種辨識 (POST /v1/pets/{pet_id}/genealogy)
-      // ----------------------------------------------------
-      const identifyResponse = await fetch(
-        `https://api.thedogapi.com/v1/pets/${petId}/genealogy`,
-        {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      if (!identifyResponse.ok) {
-        throw new Error(`品種辨識失敗: ${identifyResponse.statusText}`);
-      }
-
-      const result = await identifyResponse.json();
-      const breedLabel = result.genealogy?.primary_breed?.label ?? "";
-      const isMixedBreed = Boolean(result.genealogy?.is_mixed_breed);
-      const zhBreed = translateDogBreed(breedLabel);
-
-      setFormData((prev) => ({
-        ...prev,
-        breed: isMixedBreed ? (zhBreed ? `${zhBreed}` : "米克斯") : zhBreed,
-      }));
+      const { zhBreed } = await identifyBreed({
+        species: formData.species,
+        imageFiles,
+        petId: resolvedPetId,
+        replaceImages: hadPetId,
+      });
+      setFormData((prev) => ({ ...prev, breed: zhBreed }));
     } catch (error) {
       console.error("❌ 發生錯誤:", error);
-      return null;
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const identifyCatBreed = async (imageFile, apiKey = THE_CAT_API_KEY) => {
-    if (!imageFile) {
-      alert("請先上傳照片");
-      return;
-    }
-    try {
-      setIsSaving(true);
-      // ----------------------------------------------------
-      // 步驟一：建立 Pet 並上傳照片 (POST /v1/pets)
-      // ----------------------------------------------------
-      const formData = new FormData();
-      formData.append("name", "My Pet");
-      formData.append("images", imageFile); // 直接傳入 File 物件！
-
-      const createPetResponse = await fetch(
-        "https://api.thecatapi.com/v1/pets",
-        {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            // 注意：使用 FormData 時，fetch 會自動帶入正確的 multipart/form-data 與 boundary，不需要手動設定 Content-Type！
-          },
-          body: formData,
-        },
-      );
-
-      if (!createPetResponse.ok) {
-        throw new Error(`上傳失敗: ${createPetResponse.statusText}`);
-      }
-
-      const petData = await createPetResponse.json();
-      const petId = petData.id; // 取得剛剛建立的 pet_id
-      console.log("🐾 寵物建立成功，ID:", petId);
-
-      // ----------------------------------------------------
-      // 步驟二：呼叫基因與品種辨識 (POST /v1/pets/{pet_id}/genealogy)
-      // ----------------------------------------------------
-      const identifyResponse = await fetch(
-        `https://api.thecatapi.com/v1/pets/${petId}/genealogy`,
-        {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      if (!identifyResponse.ok) {
-        throw new Error(`品種辨識失敗: ${identifyResponse.statusText}`);
-      }
-
-      const result = await identifyResponse.json();
-      const breedLabel = result.genealogy?.primary_breed?.label ?? "";
-      const isMixedBreed = Boolean(result.genealogy?.is_mixed_breed);
-      const zhBreed = translateCatBreed(breedLabel);
-
-      setFormData((prev) => ({
-        ...prev,
-        breed: isMixedBreed ? (zhBreed ? `${zhBreed}` : "米克斯") : zhBreed,
-      }));
-    } catch (error) {
-      console.error("❌ 發生錯誤:", error);
-      return null;
-    } finally {
-      setIsSaving(false);
+      alert(error.message || "品種辨識失敗");
     }
   };
 
@@ -291,8 +214,8 @@ function CreateMyPet({ setIsCreatePet }) {
       onSubmit={handleSave}
       className="mx-auto w-full max-w-md space-y-6 rounded-none bg-white p-4 shadow-md sm:max-w-xl sm:rounded-xl sm:p-6 md:max-w-2xl md:p-8"
     >
-      <div className="mb-2">
-        <h2 className="text-xl font-bold text-gray-800 sm:text-2xl">
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-pink-600 sm:text-2xl">
           新增送養浪浪
         </h2>
         <p className="mt-1 text-sm text-gray-500">
@@ -300,34 +223,92 @@ function CreateMyPet({ setIsCreatePet }) {
         </p>
       </div>
 
-      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-        <div className="h-28 w-28 overflow-hidden rounded-lg border bg-gray-100 sm:h-40 sm:w-40">
-          {formData.image_url ? (
-            <img
-              src={formData.image_url}
-              alt="浪浪照片"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-gray-400">
-              尚無照片
-            </div>
-          )}
+      <div className="flex justify-between">
+        <div className="flex flex-col items-center">
+          <div className="h-28 w-28 overflow-hidden rounded-lg sm:h-40 sm:w-40">
+            {formData.image_url[0] ? (
+              <img
+                src={formData.image_url[0]}
+                alt="浪浪照片"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <NoPhoto text="尚無照片" className=" h-full w-full " />
+            )}
+          </div>
+          <div className="flex flex-col items-center">
+            <label className="flex h-[30px] items-center text-sm font-medium text-gray-600">
+              浪浪照片
+            </label>
+            <label className="mt-1 inline-flex h-[30px] cursor-pointer items-center rounded-lg bg-pink-500 px-4 text-sm font-bold text-white hover:bg-pink-600">
+              {"選擇照片"}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => handlePhotoChange(e, "profile")}
+                disabled={uploading}
+              />
+            </label>
+          </div>
         </div>
-        <div>
-          <label className="flex h-[30px] items-center text-sm font-medium text-gray-600">
-            浪浪照片
-          </label>
-          <label className="mt-1 inline-flex h-[30px] cursor-pointer items-center rounded-lg bg-pink-500 px-4 text-sm font-bold text-white hover:bg-pink-600">
-            {uploading ? "上傳中..." : "選擇照片"}
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handlePhotoChange}
-              disabled={uploading}
-            />
-          </label>
+
+        <div className="flex flex-col items-center">
+          <div className="h-28 w-28 overflow-hidden rounded-lg sm:h-40 sm:w-40">
+            {formData.image_url[1] ? (
+              <img
+                src={formData.image_url[1]}
+                alt="浪浪正面照片"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <NoPhoto text="尚無正面照片" className=" h-full w-full " />
+            )}
+          </div>
+          <div>
+            <label className="flex h-[30px] items-center text-sm font-medium text-gray-600">
+              浪浪正面照
+            </label>
+            <label className="mt-1 inline-flex h-[30px] cursor-pointer items-center rounded-lg bg-pink-500 px-4 text-sm font-bold text-white hover:bg-pink-600">
+              {"選擇照片"}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => handlePhotoChange(e, "front_body_photo")}
+                disabled={uploading}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center">
+          <div className="h-28 w-28 overflow-hidden rounded-lg sm:h-40 sm:w-40">
+            {formData.image_url[2] ? (
+              <img
+                src={formData.image_url[2]}
+                alt="浪浪側面照"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <NoPhoto text="尚無側面照" className=" h-full w-full " />
+            )}
+          </div>
+          <div>
+            <label className="flex h-[30px] items-center text-sm font-medium text-gray-600">
+              浪浪側面照
+            </label>
+            <label className="mt-1 inline-flex h-[30px] cursor-pointer items-center rounded-lg bg-pink-500 px-4 text-sm font-bold text-white hover:bg-pink-600">
+              {"選擇照片"}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => handlePhotoChange(e, "side_body_photo")}
+                disabled={uploading}
+              />
+            </label>
+          </div>
         </div>
       </div>
 
@@ -385,11 +366,8 @@ function CreateMyPet({ setIsCreatePet }) {
               </label>
               <button
                 type="button"
-                onClick={
-                  formData.species === "dog"
-                    ? () => identifyDogBreed(imageFile)
-                    : () => identifyCatBreed(imageFile)
-                }
+                onClick={handleIdentifyBreed}
+                disabled={isIdentifying || !imageFile}
               >
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full font-bold bg-pink-50 text-pink-500 border border-pink-200 text-[14px] ml-2">
                   <Sparkles className="w-3 h-2" />
@@ -520,6 +498,14 @@ function CreateMyPet({ setIsCreatePet }) {
         className="w-full rounded-lg bg-pink-500 p-3 font-bold text-white transition duration-200 hover:bg-pink-600 disabled:opacity-60"
       >
         {isSaving ? "儲存中..." : "新增浪浪資料"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setIsCreatePet(false)}
+        disabled={uploading || isSaving}
+        className="w-full rounded-lg bg-pink-500 p-3 font-bold text-white transition duration-200 hover:bg-pink-600 disabled:opacity-60"
+      >
+        返回
       </button>
     </form>
   );
